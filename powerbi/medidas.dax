@@ -1,0 +1,117 @@
+// AgroExport · Medidas DAX
+// Crea una tabla vacía llamada "Medidas" (Inicio > Especificar datos > Cargar)
+// y agrega cada medida con Nueva medida. Formato sugerido entre corchetes.
+// Requisito: DimDate marcada como tabla de fechas (columna Date).
+
+// ─── Ventas ──────────────────────────────────────────────────────────────────
+// Las notas de crédito ya vienen negativas y los anulados están excluidos en
+// la vista rpt.FactSales, así que una suma simple ya da ventas netas.
+
+Ventas Netas USD = SUM ( FactSales[NetAmountUsd] )                      // [$ #,0]
+
+Costo USD = SUM ( FactSales[CostAmountUsd] )                            // [$ #,0]
+
+Margen USD = [Ventas Netas USD] - [Costo USD]                           // [$ #,0]
+
+// DIVIDE evita el error de división entre cero (devuelve BLANK).
+Margen % = DIVIDE ( [Margen USD], [Ventas Netas USD] )                  // [0.0 %]
+
+Kg Vendidos = SUM ( FactSales[QuantityKg] )                             // [#,0]
+
+Ventas Año Anterior USD =
+CALCULATE ( [Ventas Netas USD], SAMEPERIODLASTYEAR ( DimDate[Date] ) )  // [$ #,0]
+
+Variación Interanual % =
+DIVIDE ( [Ventas Netas USD] - [Ventas Año Anterior USD], [Ventas Año Anterior USD] )  // [0.0 %]
+
+Notas de Crédito USD =
+- CALCULATE ( [Ventas Netas USD], FactSales[DocType] = "CN" )           // [$ #,0]
+
+Notas de Crédito % =
+DIVIDE ( [Notas de Crédito USD], [Ventas Netas USD] + [Notas de Crédito USD] )        // [0.00 %]
+
+// ─── Inventario por lote (SEMIADITIVO) ─────────────────────────────────────
+// Una fotografía no se suma entre fechas. Patrón: buscar el último corte que
+// no supere la fecha seleccionada y sumar SOLO ese corte.
+
+Último Corte Inventario =
+VAR FechaMaxima = MAX ( DimDate[Date] )
+RETURN
+    CALCULATE (
+        MAX ( FactLotSnapshot[SnapshotDate] ),
+        REMOVEFILTERS ( DimDate ),
+        DimDate[Date] <= FechaMaxima
+    )
+
+Inventario Kg =
+VAR Corte = [Último Corte Inventario]
+RETURN
+    CALCULATE (
+        SUM ( FactLotSnapshot[QtyKg] ),
+        REMOVEFILTERS ( DimDate ),
+        DimDate[Date] = Corte
+    )                                                                   // [#,0]
+
+Kg por Vencer 30 Días =
+CALCULATE ( [Inventario Kg], FactLotSnapshot[DaysToExpiry] >= 0, FactLotSnapshot[DaysToExpiry] <= 30 )
+
+Kg Vencidos con Existencia =
+CALCULATE ( [Inventario Kg], FactLotSnapshot[DaysToExpiry] < 0 )
+
+// ─── Cartera (SEMIADITIVO, mismo patrón) ────────────────────────────────────
+
+Último Corte Cartera =
+VAR FechaMaxima = MAX ( DimDate[Date] )
+RETURN
+    CALCULATE (
+        MAX ( FactReceivable[SnapshotDate] ),
+        REMOVEFILTERS ( DimDate ),
+        DimDate[Date] <= FechaMaxima
+    )
+
+Cartera Abierta USD =
+VAR Corte = [Último Corte Cartera]
+RETURN
+    CALCULATE (
+        SUM ( FactReceivable[OpenAmountUsd] ),
+        REMOVEFILTERS ( DimDate ),
+        DimDate[Date] = Corte
+    )                                                                   // [$ #,0]
+
+Cartera Vencida USD =
+CALCULATE ( [Cartera Abierta USD], FactReceivable[DaysPastDue] > 0 )    // [$ #,0]
+
+Cartera Más de 90 Días USD =
+CALCULATE ( [Cartera Abierta USD], FactReceivable[DaysPastDue] > 90 )   // [$ #,0]
+
+Cartera Vencida % = DIVIDE ( [Cartera Vencida USD], [Cartera Abierta USD] )  // [0.0 %]
+
+// ─── Despachos ───────────────────────────────────────────────────────────────
+// La relación activa con DimDate es la fecha PROGRAMADA del embarque.
+// Puntualidad no es OTIF: no medimos cantidad completa ni entrega en destino.
+
+Embarques Despachados = SUM ( FactShipment[IsShipped] )
+
+Embarques a Tiempo = SUM ( FactShipment[IsOnTime] )
+
+Puntualidad % = DIVIDE ( [Embarques a Tiempo], [Embarques Despachados] )      // [0.0 %]
+
+Corte de Datos =
+CALCULATE ( MAX ( LoadStatus[CutDate] ), LoadStatus[Status] = "Succeeded" )
+
+Embarques Pendientes Atrasados =
+VAR Corte = [Corte de Datos]
+RETURN
+    COUNTROWS (
+        FILTER ( FactShipment, FactShipment[Status] = "PENDING" && FactShipment[ScheduledDate] < Corte )
+    )
+
+// ─── Calidad y trazabilidad ─────────────────────────────────────────────────
+
+Filas Rechazadas Última Carga =
+VAR UltimaCarga = CALCULATE ( MAX ( LoadStatus[LoadBatchID] ), LoadStatus[Status] = "Succeeded" )
+RETURN
+    CALCULATE ( SUM ( LoadStatus[RowsRejected] ), LoadStatus[LoadBatchID] = UltimaCarga )
+
+Texto Corte =
+"Datos al " & FORMAT ( [Corte de Datos], "dd/mm/yyyy" ) & " · montos en USD"

@@ -1,0 +1,29 @@
+// AgroExport · Seguridad por filas (RLS)
+// Modelado > Administrar roles > Nuevo rol "Sociedad". Agrega estos filtros:
+
+// Tabla SecurityAccess: cada usuario solo ve sus propias asignaciones.
+[UserPrincipalName] = USERPRINCIPALNAME ()
+
+// Tabla DimCompany: solo las sociedades asignadas al usuario.
+// Los hechos se filtran solos, porque la relación va de DimCompany a cada hecho.
+[CompanyCode]
+    IN CALCULATETABLE (
+        VALUES ( SecurityAccess[CompanyCode] ),
+        SecurityAccess[UserPrincipalName] = USERPRINCIPALNAME ()
+    )
+
+// Tablas DimCustomer y DimProduct: el mismo filtro. Sin él, un usuario de CR01
+// vería en una segmentación los NOMBRES de clientes de GT01 (aunque sin montos).
+[CompanyCode]
+    IN CALCULATETABLE (
+        VALUES ( SecurityAccess[CompanyCode] ),
+        SecurityAccess[UserPrincipalName] = USERPRINCIPALNAME ()
+    )
+
+// Prueba en Desktop: Modelado > Ver como > Otro usuario + rol "Sociedad".
+//   planta.cr@agroexport.demo   debe ver solo CR01
+//   gerencia@agroexport.demo    debe ver CR01 y GT01
+//   cualquier.otro@correo.com   debe ver CERO filas (un usuario sin asignación no ve nada)
+//
+// En el servicio, RLS aplica a quien tiene rol Viewer en el área de trabajo.
+// Admin, Member y Contributor ven todo: no los uses para probar.

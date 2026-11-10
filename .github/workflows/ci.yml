@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    env:
+      # Contraseña desechable de un contenedor que solo vive durante el job.
+      SA_PASSWORD: Ci_${{ github.run_id }}_Aa1!
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2025-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_PID: Express
+          MSSQL_SA_PASSWORD: Ci_${{ github.run_id }}_Aa1!
+        ports:
+          - 1433:1433
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: ODBC Driver 18
+        run: |
+          if ! odbcinst -q -d | grep -q "ODBC Driver 18 for SQL Server"; then
+            sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18
+          fi
+
+      - name: Dependencias
+        run: pip install -r requirements.txt
+
+      - name: Esperar a SQL Server
+        env:
+          AGROEXPORT_USER: sa
+          AGROEXPORT_PASSWORD: ${{ env.SA_PASSWORD }}
+        run: |
+          python - <<'PY'
+          import time
+          from agroexport import db
+          for attempt in range(30):
+              try:
+                  db.connect(autocommit=True, database="master").close()
+                  print("SQL Server listo")
+                  break
+              except Exception as error:
+                  print(f"Esperando ({attempt + 1}/30): {error}")
+                  time.sleep(5)
+          else:
+              raise SystemExit("SQL Server no respondió")
+          PY
+
+      - name: Pruebas
+        env:
+          AGROEXPORT_USER: sa
+          AGROEXPORT_PASSWORD: ${{ env.SA_PASSWORD }}
+          AGROEXPORT_RUN_DB_TESTS: "1"
+        run: python -m pytest -v
+
+      - name: Demo completa
+        env:
+          AGROEXPORT_USER: sa
+          AGROEXPORT_PASSWORD: ${{ env.SA_PASSWORD }}
+        run: python -m agroexport demo

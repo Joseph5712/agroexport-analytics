@@ -1,0 +1,10 @@
+[project]
+name = "agroexport-analytics"
+version = "1.0.0"
+description = "ETL de una agroexportadora ficticia hacia SQL Server y Power BI"
+requires-python = ">=3.11"
+dependencies = ["pyodbc>=5.1"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

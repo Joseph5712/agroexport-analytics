@@ -1,0 +1,15 @@
+# Datos generados (se recrean con: python -m agroexport generar)
+data/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Power BI: archivos locales del proyecto .pbip
+powerbi/**/.pbi/localSettings.json
+powerbi/**/.pbi/cache.abf
+
+# Secretos locales
+.env
